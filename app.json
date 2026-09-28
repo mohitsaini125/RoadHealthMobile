@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Road Health AI",
+    "slug": "road-health-ai-citizen",
+    "version": "1.0.0",
+    "scheme": "roadhealth",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "ai.roadhealth.citizen",
+      "usesCleartextTraffic": true,
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION", "CAMERA"]
+    },
+    "ios": {
+      "bundleIdentifier": "ai.roadhealth.citizen",
+      "infoPlist": {
+        "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": true }
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-location",
+        { "locationWhenInUsePermission": "Road Health AI needs your location to record where the road damage is." }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Road Health AI needs the camera to photograph road damage.",
+          "photosPermission": "Road Health AI needs photo access so you can attach a picture of road damage."
+        }
+      ]
+    ]
+  }
+}
