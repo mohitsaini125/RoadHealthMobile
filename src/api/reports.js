@@ -1,25 +1,57 @@
-import { apiRequest } from "./client";
+import { File, UploadType } from "expo-file-system";
+import { API_BASE_URL } from "../config/api";
+import { getToken } from "../storage/authStorage";
 
-export function submitReport({ latitude, longitude, description, imageUri, imageName, imageType }) {
+async function uploadReportImage({ latitude, longitude, description, imageUri, imageName, imageType }) {
   if (!imageUri) throw new Error("A road-damage image is required.");
 
-  const formData = new FormData();
-  formData.append("latitude", String(latitude));
-  formData.append("longitude", String(longitude));
-  formData.append("description", description || "");
+  const token = await getToken();
+  const file = new File(imageUri);
+  const url = `${API_BASE_URL}/reports`;
 
-  // Expo React Native requires a URI-based native file part.
-  // Do not pass Blob/File objects and do not set Content-Type manually.
-  formData.append("image", {
-    uri: imageUri,
-    name: imageName || "road_damage.jpg",
-    type: imageType || "image/jpeg",
+  // Use Expo FileSystem's native multipart uploader instead of React Native
+  // fetch(FormData). This avoids the Android/Expo Go FormDataPart error.
+  const result = await file.upload(url, {
+    uploadType: UploadType.MULTIPART,
+    fieldName: "image",
+    mimeType: imageType || "image/jpeg",
+    httpMethod: "POST",
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    parameters: {
+      latitude: String(latitude),
+      longitude: String(longitude),
+      description: description || "",
+    },
   });
 
-  return apiRequest("/reports", { method: "POST", body: formData });
+  let data = null;
+  try {
+    data = result.body ? JSON.parse(result.body) : null;
+  } catch {
+    data = null;
+  }
+
+  if (result.status < 200 || result.status >= 300) {
+    const detail = typeof data?.detail === "string" ? data.detail : null;
+    throw new Error(detail || `Report upload failed (${result.status}).`);
+  }
+
+  return data;
 }
 
-export const listReports = (page = 1, pageSize = 20) =>
-  apiRequest(`/reports?page=${page}&page_size=${pageSize}`);
+export function submitReport(params) {
+  return uploadReportImage(params);
+}
 
-export const getReport = (id) => apiRequest(`/reports/${id}`);
+export const listReports = (page = 1, pageSize = 20) => {
+  // Kept on the normal JSON API client path for GET requests.
+  return import("./client").then(({ apiRequest }) =>
+    apiRequest(`/reports?page=${page}&page_size=${pageSize}`)
+  );
+};
+
+export const getReport = (id) =>
+  import("./client").then(({ apiRequest }) => apiRequest(`/reports/${id}`));
