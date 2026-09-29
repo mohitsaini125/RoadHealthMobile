@@ -29,6 +29,13 @@ function readDetail(data) {
   return null;
 }
 
+/**
+ * Generic JSON API helper.
+ *
+ * NOTE: Do NOT use this for multipart/form-data requests (e.g. report image
+ * upload). Use a dedicated fetch() call in reports.js so that React Native
+ * can generate the correct multipart boundary automatically.
+ */
 export async function apiRequest(endpoint, options = {}) {
   const token = await getToken();
   const headers = { Accept: "application/json", ...options.headers };
@@ -38,6 +45,12 @@ export async function apiRequest(endpoint, options = {}) {
   try {
     response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
   } catch (e) {
+    // Log the real cause so Metro shows the actual underlying error.
+    console.error("========== API NETWORK ERROR ==========");
+    console.error("Endpoint:", endpoint);
+    console.error("Full URL:", `${API_BASE_URL}${endpoint}`);
+    console.error("Error:", e?.message ?? e);
+    console.error("=======================================");
     throw new ApiError(
       "Can't reach the server. Check your internet connection and try again.",
       0

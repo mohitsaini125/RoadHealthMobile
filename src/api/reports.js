@@ -1,13 +1,19 @@
-import { File } from "expo-file-system";
+import { API_BASE_URL } from "../config/api";
+import { getToken } from "../storage/authStorage";
 import { apiRequest } from "./client";
+import { File } from "expo-file-system";
 
 /**
- * Build a multipart report payload for Expo Go / React Native.
+ * Submit a road-damage report.
  *
- * IMPORTANT: ImagePicker returns a local device URI. Do not call fetch()
- * against that URI — Android/Expo can return 404 for local file URIs even
- * though the image is perfectly valid. FormData can receive the Expo
- * File object directly.
+ * Uses a dedicated fetch() call instead of the generic apiRequest() helper
+ * so that React Native's FormData + fetch can generate the correct
+ * multipart/form-data boundary automatically.
+ *
+ * CRITICAL — DO NOT pass an expo-file-system File object to FormData.
+ * React Native's FormData only accepts the plain { uri, name, type }
+ * shape for file parts. Passing anything else throws:
+ *   "Unsupported FormDataPart implementation"
  */
 export async function submitReport({
   latitude,
@@ -19,47 +25,98 @@ export async function submitReport({
 }) {
   if (!imageUri) throw new Error("A road-damage image is required.");
 
-  const filename = imageName || `road_damage_${Date.now()}.jpg`;
-  const mimeType = imageType || "image/jpeg";
+  // ── Debug log (safe — no token logged) ──────────────────────────────────
+  console.log("========== REPORT SUBMISSION ==========");
+  console.log("API:", `${API_BASE_URL}/reports`);
+  console.log("Image URI:", imageUri);
+  console.log("Latitude:", latitude);
+  console.log("Longitude:", longitude);
+  console.log("Description:", description);
+  console.log("=======================================");
 
-  // ImagePicker gives us a local file URI. Construct an Expo File directly
-  // from that URI instead of fetch(imageUri). Fetching a local URI is what
-  // caused the previous "Unable to read selected image (404)" error.
-  let file;
-  try {
-    file = new File(imageUri);
-
-    // `exists` is supported by expo-file-system's File API. Fail early with
-    // a useful message if the temporary image was actually removed.
-    if (!file.exists) {
-      throw new Error("The selected image is no longer available on the device.");
-    }
-  } catch (error) {
-    if (error?.message?.includes("no longer available")) {
-      throw error;
-    }
-    throw new Error("Unable to access the selected image on the device.");
-  }
-
-  // Preserve the filename/type expected by the FastAPI UploadFile endpoint.
-  // The URI-backed File itself is used as the multipart part; no Blob/fetch
-  // conversion is needed.
-  const uploadFile = file.name === filename && file.type === mimeType
-    ? file
-    : new File(imageUri, filename, { type: mimeType });
-
+  // ── Build multipart FormData ─────────────────────────────────────────────
+  //
+  // React Native's fetch understands ONLY this plain-object shape for files:
+  //   { uri: string, name: string, type: string }
+  //
+  // DO NOT use:
+  //   • new File(uri)  — expo-file-system's File class (wrong runtime type)
+  //   • new Blob(...)  — not available in React Native
+  //   • fetch(imageUri) to convert — causes 404 for local file URIs on Android
+  //
   const formData = new FormData();
+
+  // File part — must use the RN plain-object shape, field name "image"
+  // to match: image: UploadFile = File(...) in the FastAPI route.
+  formData.append("image", new File(imageUri));
+  // formData.append("image",new File(imageUri,imageName))
+  console.log("Image:", formData.image)
+
+  // Scalar form fields — match FastAPI Form() parameter names exactly.
   formData.append("latitude", String(latitude));
   formData.append("longitude", String(longitude));
-  formData.append("description", description || "");
-  formData.append("image", uploadFile);
+  console.log("Latitude:", formData.latitude)
+    console.log("Longitude:", formData.longitude)
 
-  // Do not set Content-Type manually. fetch() must generate the multipart
-  // boundary for the FastAPI UploadFile endpoint.
-  return apiRequest("/reports", {
-    method: "POST",
-    body: formData,
-  });
+  // description is optional on the backend (Form(default=None)).
+  // Only append when non-empty so FastAPI receives null, not an empty string.
+  if (description && description.trim()) {
+    formData.append("description", description.trim());
+  console.log("Description:", formData.description)
+  }
+
+  // ── Attach JWT ────────────────────────────────────────────────────────────
+  const token = await getToken();
+  const headers = {
+    Accept: "application/json",
+    // DO NOT set Content-Type here.
+    // fetch() must generate the multipart boundary automatically.
+    // Any manual "Content-Type: multipart/form-data" breaks the boundary.
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  // ── Send request ──────────────────────────────────────────────────────────
+  let response;
+  // console.log(formData.image)
+  try {
+    console.log(API_BASE_URL)
+    response = await fetch(`${API_BASE_URL}/reports`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    console.log("Report response status:", response.status);
+  } catch (e) {
+    const message =  e instanceof Error ? e.message : String(e);
+    // Log the real error so Metro shows the actual cause, not a generic message.
+    console.error("REPORT SUBMISSION — NETWORK ERROR:", e);
+    console.error("Message:", e?.message);
+    throw new Error(
+      "Can't reach the server. Check your internet connection and try again." + message
+    );
+  }
+
+  // ── Parse response ────────────────────────────────────────────────────────
+  let data = null;
+  try {
+    data = await response.json();
+  } catch (_) {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const detail =
+      typeof data?.detail === "string"
+        ? data.detail
+        : Array.isArray(data?.detail)
+        ? data.detail.map((e) => e.msg).join("; ")
+        : "Failed to submit report. Please try again.";
+    console.error("REPORT SUBMISSION — SERVER ERROR:", response.status, detail);
+    throw new Error(detail);
+  }
+
+  console.log("Report created:", data?.id ?? data);
+  return data;
 }
 
 export const listReports = (page = 1, pageSize = 20) =>
