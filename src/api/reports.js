@@ -2,11 +2,12 @@ import { File } from "expo-file-system";
 import { apiRequest } from "./client";
 
 /**
- * Build a multipart report payload for Expo Go / React Native 0.86.
+ * Build a multipart report payload for Expo Go / React Native.
  *
- * Expo's fetch implementation only accepts a string, Blob, or File as a
- * FormData part. The old React Native `{ uri, name, type }` object throws
- * `Unsupported FormDataPart implementation` on device.
+ * IMPORTANT: ImagePicker returns a local device URI. Do not call fetch()
+ * against that URI — Android/Expo can return 404 for local file URIs even
+ * though the image is perfectly valid. FormData can receive the Expo
+ * File object directly.
  */
 export async function submitReport({
   latitude,
@@ -21,21 +22,37 @@ export async function submitReport({
   const filename = imageName || `road_damage_${Date.now()}.jpg`;
   const mimeType = imageType || "image/jpeg";
 
-  // Convert the local Expo URI into a real Blob first. Then construct an
-  // expo-file-system File from that Blob. This avoids the legacy RN FormData
-  // part implementation that Expo Go rejects.
-  const blobResponse = await fetch(imageUri);
-  if (!blobResponse.ok) {
-    throw new Error(`Unable to read selected image (${blobResponse.status}).`);
+  // ImagePicker gives us a local file URI. Construct an Expo File directly
+  // from that URI instead of fetch(imageUri). Fetching a local URI is what
+  // caused the previous "Unable to read selected image (404)" error.
+  let file;
+  try {
+    file = new File(imageUri);
+
+    // `exists` is supported by expo-file-system's File API. Fail early with
+    // a useful message if the temporary image was actually removed.
+    if (!file.exists) {
+      throw new Error("The selected image is no longer available on the device.");
+    }
+  } catch (error) {
+    if (error?.message?.includes("no longer available")) {
+      throw error;
+    }
+    throw new Error("Unable to access the selected image on the device.");
   }
-  const blob = await blobResponse.blob();
-  const file = new File([blob], filename, { type: mimeType });
+
+  // Preserve the filename/type expected by the FastAPI UploadFile endpoint.
+  // The URI-backed File itself is used as the multipart part; no Blob/fetch
+  // conversion is needed.
+  const uploadFile = file.name === filename && file.type === mimeType
+    ? file
+    : new File(imageUri, filename, { type: mimeType });
 
   const formData = new FormData();
   formData.append("latitude", String(latitude));
   formData.append("longitude", String(longitude));
   formData.append("description", description || "");
-  formData.append("image", file);
+  formData.append("image", uploadFile);
 
   // Do not set Content-Type manually. fetch() must generate the multipart
   // boundary for the FastAPI UploadFile endpoint.
