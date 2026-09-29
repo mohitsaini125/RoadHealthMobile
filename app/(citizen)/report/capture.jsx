@@ -10,10 +10,8 @@ const PICKER_OPTS = { mediaTypes: ["images"], quality: 0.7, allowsEditing: false
 
 export default function Capture() {
   const router = useRouter();
-  // Seed from draft so the chosen photo survives a back-navigate.
-  const [uri, setUri] = useState(getDraft().imageUri || null);
+  const [image, setImage] = useState(getDraft().image || null);
   const [error, setError] = useState(null);
-  // Prevent double-tap on Continue while the navigator is animating.
   const [navigating, setNavigating] = useState(false);
 
   const deniedAlert = (what) =>
@@ -32,7 +30,7 @@ export default function Capture() {
     if (!perm.granted) return deniedAlert("Camera");
     try {
       const res = await ImagePicker.launchCameraAsync(PICKER_OPTS);
-      if (!res.canceled && res.assets?.[0]?.uri) setUri(res.assets[0].uri);
+      if (!res.canceled && res.assets?.[0]?.uri) setImage(res.assets[0]);
     } catch (e) {
       setError("Couldn't open the camera. Please try again.");
     }
@@ -44,20 +42,19 @@ export default function Capture() {
     if (!perm.granted) return deniedAlert("Photo library");
     try {
       const res = await ImagePicker.launchImageLibraryAsync(PICKER_OPTS);
-      if (!res.canceled && res.assets?.[0]?.uri) setUri(res.assets[0].uri);
+      if (!res.canceled && res.assets?.[0]?.uri) setImage(res.assets[0]);
     } catch (e) {
       setError("Couldn't open your photos. Please try again.");
     }
   };
 
   const next = () => {
-    if (!uri || navigating) return;   // guard: no image or already navigating
+    if (!image?.uri || navigating) return;
     setNavigating(true);
     try {
-      setDraft({ imageUri: uri });    // persist before navigation
+      setDraft({ image });
       router.push("/(citizen)/report/location");
     } catch (e) {
-      // Navigation failed — reset so the user can retry
       setNavigating(false);
       setError("Navigation failed. Please try again.");
     }
@@ -71,7 +68,6 @@ export default function Capture() {
 
       <ErrorBanner message={error} />
 
-      {/* Photo preview */}
       <View
         style={{
           aspectRatio: 4 / 3,
@@ -83,17 +79,16 @@ export default function Capture() {
           marginBottom: 16,
         }}
       >
-        {uri ? (
-          <Image source={{ uri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+        {image?.uri ? (
+          <Image source={{ uri: image.uri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
         ) : (
           <Text style={{ color: colors.slate }}>No photo yet</Text>
         )}
       </View>
 
-      {/* Camera / Library buttons */}
       <View style={{ flexDirection: "row", gap: 10, marginBottom: 20 }}>
         <Button
-          title={uri ? "Retake" : "Use camera"}
+          title={image?.uri ? "Retake" : "Use camera"}
           onPress={take}
           variant="dark"
           style={{ flex: 1 }}
@@ -108,15 +103,10 @@ export default function Capture() {
         />
       </View>
 
-      {/*
-        disabled when no image yet.
-        loading shows a spinner while the navigator transitions so the user
-        gets immediate visual feedback and cannot double-tap.
-      */}
       <Button
         title="Continue"
         onPress={next}
-        disabled={!uri}
+        disabled={!image?.uri}
         loading={navigating}
       />
     </ScrollView>
