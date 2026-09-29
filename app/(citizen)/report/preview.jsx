@@ -8,42 +8,35 @@ import { colors, radius } from "../../../src/utils/theme";
 
 export default function Preview() {
   const router = useRouter();
-
-  // Snapshot draft values at mount time.
-  // getDraft() returns the same mutable object, so snapshot the fields we need
-  // to avoid accidentally reading values that a concurrent setDraft() modifies.
   const draftRef = useRef(getDraft());
-  const { imageUri, latitude, longitude } = draftRef.current;
+  const { image, latitude, longitude } = draftRef.current;
+  const imageUri = image?.uri;
 
   const [description, setDescription] = useState(draftRef.current.description || "");
-  const [phase, setPhase] = useState(null); // null | "Uploading image…" | "Analysing road…"
+  const [phase, setPhase] = useState(null);
   const [error, setError] = useState(null);
   const inFlight = useRef(false);
 
-  // Track mount state so we never call setState after router.replace fires.
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
 
-  // Guard: if the draft is missing required fields (user somehow reached
-  // preview without completing earlier steps), go back rather than crash.
   useEffect(() => {
     if (!imageUri || latitude == null || longitude == null) {
       router.back();
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const onSubmit = async () => {
-    if (inFlight.current) return; // prevent duplicate taps
+    if (inFlight.current || !image?.uri) return;
     inFlight.current = true;
     if (mounted.current) {
       setError(null);
       setPhase("Uploading image…");
     }
 
-    // Persist the description before the async call in case submit succeeds.
     setDraft({ description });
 
     const phaseTimer = setTimeout(() => {
@@ -55,10 +48,11 @@ export default function Preview() {
         latitude,
         longitude,
         description: description.trim(),
-        imageUri,
+        imageUri: image.uri,
+        imageName: image.fileName || "road_damage.jpg",
+        imageType: image.mimeType || "image/jpeg",
       });
       setDraft({ result });
-      // Navigate immediately; don't wait for React state updates.
       router.replace("/(citizen)/report/result");
     } catch (e) {
       if (mounted.current) {
@@ -66,8 +60,6 @@ export default function Preview() {
       }
     } finally {
       clearTimeout(phaseTimer);
-      // Only reset UI state if we are still on this screen
-      // (navigation to result may have already unmounted us).
       if (mounted.current) {
         setPhase(null);
         inFlight.current = false;
@@ -75,8 +67,6 @@ export default function Preview() {
     }
   };
 
-  // If the draft guard above redirects us, render nothing so we don't
-  // briefly show a broken preview with null values.
   if (!imageUri || latitude == null || longitude == null) return null;
 
   return (
@@ -84,7 +74,6 @@ export default function Preview() {
       <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
         <ErrorBanner message={error} />
 
-        {/* Road-damage photo */}
         <Image
           source={{ uri: imageUri }}
           style={{
@@ -97,7 +86,6 @@ export default function Preview() {
           resizeMode="cover"
         />
 
-        {/* Coordinate summary */}
         <View
           style={{
             backgroundColor: "#fff",
@@ -112,7 +100,6 @@ export default function Preview() {
           <Row label="Longitude">{longitude.toFixed(6)}</Row>
         </View>
 
-        {/* Optional description */}
         <Text style={{ fontSize: 13, fontWeight: "600", color: colors.asphalt, marginBottom: 6 }}>
           Description (optional)
         </Text>
