@@ -1,16 +1,21 @@
 import { apiRequest } from "./client";
 
-export function submitReport({ latitude, longitude, description, imageUri }) {
+export function submitReport({ latitude, longitude, description, imageUri, imageName, imageType }) {
+  if (!imageUri) throw new Error("A road-damage image is required.");
+
   const formData = new FormData();
   formData.append("latitude", String(latitude));
   formData.append("longitude", String(longitude));
   formData.append("description", description || "");
+
+  // Expo React Native requires a URI-based native file part.
+  // Do not pass Blob/File objects and do not set Content-Type manually.
   formData.append("image", {
     uri: imageUri,
-    name: "road_damage.jpg",
-    type: "image/jpeg",
+    name: imageName || "road_damage.jpg",
+    type: imageType || "image/jpeg",
   });
-  // Do NOT set Content-Type: fetch generates the multipart boundary.
+
   return apiRequest("/reports", { method: "POST", body: formData });
 }
 
