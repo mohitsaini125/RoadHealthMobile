@@ -5,10 +5,9 @@ import { apiRequest } from "./client";
 
 /**
  * Submit a road-damage report using Expo FileSystem's legacy uploadAsync API.
- *
- * Expo SDK 57 keeps uploadAsync and FileSystemUploadType in the legacy
- * FileSystem module. Importing them from the modern module causes
- * FileSystemUploadType to be undefined and crashes at .MULTIPART.
+ * Expo SDK 57's legacy API accepts FileSystemUploadType.MULTIPART, whose
+ * runtime value is 1. We use the documented numeric value directly to avoid
+ * Expo Go builds where the enum export is unavailable at runtime.
  */
 export async function submitReport({
   latitude,
@@ -47,7 +46,8 @@ export async function submitReport({
       imageUri,
       {
         httpMethod: "POST",
-        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        // Expo FileSystem legacy: MULTIPART === 1.
+        uploadType: 1,
         fieldName: "image",
         mimeType: imageType || "image/jpeg",
         parameters,
@@ -60,7 +60,7 @@ export async function submitReport({
     console.error("REPORT SUBMISSION — UPLOAD ERROR:", e);
     console.error("Message:", e?.message);
     throw new Error(
-      "Unable to upload the report image. Please check the server connection and try again."
+      `Report upload failed: ${e?.message || "Unknown upload error"}`
     );
   }
 
